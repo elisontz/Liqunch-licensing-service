@@ -4,6 +4,7 @@ interface Env {
   PADDLE_SINGLE_PRICE_ID: string;
   PADDLE_DOUBLE_PRICE_ID: string;
   PADDLE_WEBHOOK_SECRET: string;
+  PADDLE_API_KEY?: string;
 }
 
 interface LicenseRow {
@@ -265,13 +266,7 @@ async function handlePaddleWebhook(request: Request, env: Env): Promise<Response
 }
 
 async function createLicenseFromWebhook(env: Env, payload: Record<string, unknown>): Promise<void> {
-  const email = normalizeEmail(
-    readNestedString(payload, [
-      ["data", "customer", "email"],
-      ["data", "email"],
-      ["customer", "email"]
-    ]) ?? ""
-  );
+  const email = await resolveWebhookCustomerEmail(env, payload);
   const transactionID = readNestedString(payload, [
     ["data", "id"],
     ["data", "transaction_id"],
@@ -316,6 +311,58 @@ async function createLicenseFromWebhook(env: Env, payload: Record<string, unknow
       nowIso()
     )
     .run();
+}
+
+export async function resolveWebhookCustomerEmail(
+  env: Pick<Env, "PADDLE_API_KEY">,
+  payload: Record<string, unknown>
+): Promise<string | null> {
+  const embeddedEmail = normalizeEmail(
+    readNestedString(payload, [
+      ["data", "customer", "email"],
+      ["data", "email"],
+      ["customer", "email"]
+    ]) ?? ""
+  );
+  if (embeddedEmail) {
+    return embeddedEmail;
+  }
+
+  const customerID = readNestedString(payload, [
+    ["data", "customer_id"],
+    ["customer_id"]
+  ]);
+  if (!customerID || !env.PADDLE_API_KEY?.trim()) {
+    return null;
+  }
+
+  return fetchPaddleCustomerEmail(customerID, env.PADDLE_API_KEY);
+}
+
+async function fetchPaddleCustomerEmail(customerID: string, apiKey: string): Promise<string | null> {
+  const response = await fetch(`https://api.paddle.com/customers/${customerID}`, {
+    headers: new Headers({
+      Authorization: `Bearer ${apiKey}`,
+      Accept: "application/json"
+    })
+  });
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = parseJson<Record<string, unknown>>(await response.text());
+  if (!payload) {
+    return null;
+  }
+
+  const email = normalizeEmail(
+    readNestedString(payload, [
+      ["data", "email"],
+      ["email"]
+    ]) ?? ""
+  );
+
+  return email || null;
 }
 
 async function revokeLicenseFromWebhook(env: Env, payload: Record<string, unknown>): Promise<void> {
