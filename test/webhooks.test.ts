@@ -37,7 +37,7 @@ test("fetches customer email from Paddle when the webhook only includes customer
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async (input, init) => {
-    assert.equal(String(input), "https://api.paddle.com/customers/ctm_123");
+    assert.equal(String(input), "https://sandbox-api.paddle.com/customers/ctm_123");
     assert.equal(init?.headers instanceof Headers, true);
     assert.equal((init?.headers as Headers).get("Authorization"), "Bearer pdl_sdbx_apikey_test");
 
@@ -67,4 +67,40 @@ test("fetches customer email from Paddle when the webhook only includes customer
   );
 
   assert.equal(email, "buyer@example.com");
+});
+
+test("uses the live Paddle API host for live API keys", async (t) => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), "https://api.paddle.com/customers/ctm_live");
+    assert.equal(init?.headers instanceof Headers, true);
+    assert.equal((init?.headers as Headers).get("Authorization"), "Bearer pdl_live_apikey_test");
+
+    return new Response(JSON.stringify({
+      data: {
+        email: "live@example.com"
+      }
+    }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json"
+      }
+    });
+  };
+
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const email = await resolveWebhookCustomerEmail(
+    { PADDLE_API_KEY: "pdl_live_apikey_test" } as never,
+    {
+      data: {
+        customer_id: "ctm_live"
+      }
+    }
+  );
+
+  assert.equal(email, "live@example.com");
 });

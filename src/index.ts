@@ -340,7 +340,7 @@ export async function resolveWebhookCustomerEmail(
 }
 
 async function fetchPaddleCustomerEmail(customerID: string, apiKey: string): Promise<string | null> {
-  const response = await fetch(`https://api.paddle.com/customers/${customerID}`, {
+  const response = await fetch(`${resolvePaddleApiBaseUrl(apiKey)}/customers/${customerID}`, {
     headers: new Headers({
       Authorization: `Bearer ${apiKey}`,
       Accept: "application/json"
@@ -363,6 +363,12 @@ async function fetchPaddleCustomerEmail(customerID: string, apiKey: string): Pro
   );
 
   return email || null;
+}
+
+function resolvePaddleApiBaseUrl(apiKey: string): string {
+  return apiKey.includes("_sdbx_")
+    ? "https://sandbox-api.paddle.com"
+    : "https://api.paddle.com";
 }
 
 async function revokeLicenseFromWebhook(env: Env, payload: Record<string, unknown>): Promise<void> {
