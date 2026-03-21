@@ -2,9 +2,28 @@
 
 Minimal Cloudflare Workers + D1 service for `email + license` activation.
 
-Recommended production hostname:
+Production endpoint:
 
-- `https://olauncher-licensing-service.elisonyang2024.workers.dev`
+- [https://olauncher-licensing-service.elisonyang2024.workers.dev](https://olauncher-licensing-service.elisonyang2024.workers.dev)
+
+Health check:
+
+- [https://olauncher-licensing-service.elisonyang2024.workers.dev/health](https://olauncher-licensing-service.elisonyang2024.workers.dev/health)
+
+## Scope
+
+This repository contains the standalone licensing backend only. It is responsible for:
+
+- license activation
+- license validation
+- license deactivation
+- Paddle webhook handling
+- seat tracking in D1
+
+Related repositories:
+
+- App: [`oLauncher`](https://github.com/elisontz/oLauncher)
+- Website: [`olauncher-web`](https://github.com/elisontz/olauncher-web)
 
 ## Endpoints
 
@@ -16,29 +35,67 @@ Recommended production hostname:
 
 ## Local setup
 
-1. Create a D1 database:
-   - `wrangler d1 create olauncher-licenses`
-2. Replace `database_id` in [`wrangler.toml`](./wrangler.toml).
-3. Apply the initial schema:
-   - `wrangler d1 execute olauncher-licenses --file=./migrations/0001_initial.sql`
-4. Install dependencies:
-   - `npm install`
-5. Start local dev:
-   - `npm run dev`
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Create a D1 database:
+   ```bash
+   npx wrangler d1 create olauncher-licenses
+   ```
+3. Replace `database_id` in [`wrangler.toml`](./wrangler.toml).
+4. Apply the initial schema locally if needed:
+   ```bash
+   npx wrangler d1 execute olauncher-licenses --file=./migrations/0001_initial.sql
+   ```
+5. Apply the schema to the remote database:
+   ```bash
+   npx wrangler d1 execute olauncher-licenses --remote --file=./migrations/0001_initial.sql
+   ```
+6. Run the local dev server:
+   ```bash
+   npm run dev
+   ```
 
-## Required config
+## Verification
 
-Set these values in [`wrangler.toml`](./wrangler.toml) or through Wrangler environments:
+```bash
+npm test
+npm run typecheck
+```
+
+## Required configuration
+
+Set these values in [`wrangler.toml`](./wrangler.toml) or through Wrangler secrets where noted:
 
 - `LICENSE_KEY_PREFIX`
 - `PADDLE_SINGLE_PRICE_ID`
 - `PADDLE_DOUBLE_PRICE_ID`
-- `PADDLE_WEBHOOK_SECRET` (Wrangler secret, not a public var)
+- `EMAIL_FROM_ADDRESS`
+- `EMAIL_FROM_NAME`
+- `EMAIL_REPLY_TO`
+- `SUPPORT_EMAIL`
+- `PADDLE_WEBHOOK_SECRET` via Wrangler secret
+- `PADDLE_API_KEY` via Wrangler secret
+- `SMTP2GO_API_KEY` via Wrangler secret
+
+## Paddle webhook configuration
+
+Current webhook destination:
+
+- `https://olauncher-licensing-service.elisonyang2024.workers.dev/api/paddle/webhooks`
+
+The current event set is:
+
+- `transaction.paid`
+- `transaction.completed`
+- `adjustment.created`
+- `adjustment.updated`
 
 ## Notes
 
-- The webhook handler now verifies the `Paddle-Signature` header against the raw request body before mutating license state.
-- Paddle webhook events should be sent to:
-  - `https://olauncher-licensing-service.elisonyang2024.workers.dev/api/paddle/webhooks`
-- The service still assumes Paddle event payloads include a transaction identifier, customer email, and a resolvable price ID.
-- Before production use, add outbound email delivery for newly created licenses.
+- The webhook handler verifies the `Paddle-Signature` header against the raw request body before mutating license state.
+- The service uses Cloudflare D1 for license and activation records.
+- Custom domain binding for `license.tayueke.cn` was not used because the DNS zone is still hosted outside Cloudflare.
+- Newly created licenses are emailed through SMTP2GO after successful purchase webhook processing.
+- Email delivery failure does not roll back license creation. Check Worker logs if a buyer does not receive the message.

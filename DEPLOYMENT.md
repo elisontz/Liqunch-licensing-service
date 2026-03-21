@@ -24,11 +24,17 @@ Update [`wrangler.toml`](./wrangler.toml):
 
 - `PADDLE_SINGLE_PRICE_ID`
 - `PADDLE_DOUBLE_PRICE_ID`
+- `EMAIL_FROM_ADDRESS`
+- `EMAIL_FROM_NAME`
+- `EMAIL_REPLY_TO`
+- `SUPPORT_EMAIL`
 
-Then set the Paddle webhook secret as a Worker secret:
+Then set the Worker secrets:
 
 ```bash
 wrangler secret put PADDLE_WEBHOOK_SECRET
+wrangler secret put PADDLE_API_KEY
+wrangler secret put SMTP2GO_API_KEY
 ```
 
 ## 4. Install dependencies
@@ -55,6 +61,9 @@ The current implementation supports these event intents:
 
 - successful transaction => create license
 - refund / chargeback adjustment => revoke license
+
+After a successful purchase webhook creates a license, the service also sends a bilingual license email through SMTP2GO.
+If email delivery fails, the license remains active and the failure is only logged.
 
 ## 7. Manual backfill during early rollout
 
