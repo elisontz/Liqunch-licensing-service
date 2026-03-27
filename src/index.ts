@@ -2,6 +2,7 @@ interface Env {
   DB: D1Database;
   LICENSE_KEY_PREFIX: string;
   PADDLE_SINGLE_PRICE_ID: string;
+  PADDLE_SINGLE_TEST_PRICE_ID?: string;
   PADDLE_DOUBLE_PRICE_ID: string;
   PADDLE_WEBHOOK_SECRET: string;
   PADDLE_API_KEY?: string;
@@ -40,6 +41,8 @@ interface ValidateRequest {
   email: string;
   licenseKey: string;
   deviceID: string;
+  deviceName?: string;
+  appVersion?: string;
 }
 
 type LicenseResponseStatus = "active" | "invalid" | "revoked" | "exhausted" | "deactivated";
@@ -104,16 +107,14 @@ export default {
 };
 
 async function handleActivate(request: Request, env: Env): Promise<Response> {
-  const body = await readJson<ActivationRequest>(request);
-  if (!body) {
-    return json({ status: "invalid", message: "Invalid JSON payload." }, 400);
-  }
-
-  const email = normalizeEmail(body.email);
-  const licenseKey = normalizeLicenseKey(body.licenseKey);
-  const deviceID = body.deviceID.trim();
-  const deviceName = body.deviceName?.trim() ?? null;
-  const appVersion = body.appVersion?.trim() ?? null;
+  const body = (await readJson<Record<string, unknown>>(request)) ?? {};
+  
+  const email = normalizeEmail(readString(body, ["email"]) ?? "");
+  const licenseKey = normalizeLicenseKey(readString(body, ["licenseKey", "license_key"]) ?? "");
+  const deviceID = readString(body, ["deviceID", "device_id"]) ?? "";
+  const deviceName = readString(body, ["deviceName", "device_name"]);
+  const appVersion = readString(body, ["appVersion", "app_version"]);
+  const osVersion = readString(body, ["osVersion", "os_version"]);
 
   if (!email || !licenseKey || !deviceID) {
     return json({ status: "invalid", message: "Email, license key, and device ID are required." }, 400);
@@ -125,14 +126,14 @@ async function handleActivate(request: Request, env: Env): Promise<Response> {
   }
 
   if (license.status === "revoked") {
-    return json(licenseSummary(license, 0, { status: "revoked", message: "This license has been revoked." }), 403);
+    return json(licenseSummary(license, 0, { status: "revoked", message: "This license has been revoked." }));
   }
 
   const existingActivation = await findActivation(env.DB, license.id, deviceID);
   if (existingActivation) {
     await env.DB
-      .prepare("UPDATE activations SET last_validated_at = ? WHERE id = ?")
-      .bind(nowIso(), existingActivation.id)
+      .prepare("UPDATE activations SET device_name = ?, app_version = ?, os_version = ?, last_validated_at = ? WHERE id = ?")
+      .bind(deviceName, appVersion, osVersion, nowIso(), existingActivation.id)
       .run();
     const usedSeats = await countActivations(env.DB, license.id);
     return json(licenseSummary(license, usedSeats, {
@@ -147,16 +148,16 @@ async function handleActivate(request: Request, env: Env): Promise<Response> {
     return json(licenseSummary(license, usedSeats, {
       status: "exhausted",
       message: "This license has reached its device limit."
-    }), 409);
+    }));
   }
 
   const activationId = crypto.randomUUID();
   await env.DB
     .prepare(`
-      INSERT INTO activations (id, license_id, device_id, device_name, app_version, created_at, last_validated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO activations (id, license_id, device_id, device_name, app_version, os_version, created_at, last_validated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
-    .bind(activationId, license.id, deviceID, deviceName, appVersion, nowIso(), nowIso())
+    .bind(activationId, license.id, deviceID, deviceName, appVersion, osVersion, nowIso(), nowIso())
     .run();
 
   return json(licenseSummary(license, usedSeats + 1, {
@@ -167,14 +168,14 @@ async function handleActivate(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleValidate(request: Request, env: Env): Promise<Response> {
-  const body = await readJson<ValidateRequest>(request);
-  if (!body) {
-    return json({ status: "invalid", message: "Invalid JSON payload." }, 400);
-  }
+  const body = (await readJson<Record<string, unknown>>(request)) ?? {};
 
-  const email = normalizeEmail(body.email);
-  const licenseKey = normalizeLicenseKey(body.licenseKey);
-  const deviceID = body.deviceID.trim();
+  const email = normalizeEmail(readString(body, ["email"]) ?? "");
+  const licenseKey = normalizeLicenseKey(readString(body, ["licenseKey", "license_key"]) ?? "");
+  const deviceID = readString(body, ["deviceID", "device_id"]) ?? "";
+  const deviceName = readString(body, ["deviceName", "device_name"]);
+  const appVersion = readString(body, ["appVersion", "app_version"]);
+  const osVersion = readString(body, ["osVersion", "os_version"]);
 
   if (!email || !licenseKey || !deviceID) {
     return json({ status: "invalid", message: "Email, license key, and device ID are required." }, 400);
@@ -190,7 +191,7 @@ async function handleValidate(request: Request, env: Env): Promise<Response> {
     return json(licenseSummary(license, usedSeats, {
       status: "revoked",
       message: "This license has been revoked."
-    }), 403);
+    }));
   }
 
   const activation = await findActivation(env.DB, license.id, deviceID);
@@ -198,12 +199,12 @@ async function handleValidate(request: Request, env: Env): Promise<Response> {
     return json(licenseSummary(license, usedSeats, {
       status: "invalid",
       message: "This device is not activated for the provided license."
-    }), 403);
+    }));
   }
 
   await env.DB
-    .prepare("UPDATE activations SET last_validated_at = ? WHERE id = ?")
-    .bind(nowIso(), activation.id)
+    .prepare("UPDATE activations SET device_name = ?, app_version = ?, os_version = ?, last_validated_at = ? WHERE id = ?")
+    .bind(deviceName, appVersion, osVersion, nowIso(), activation.id)
     .run();
 
   return json(licenseSummary(license, usedSeats, {
@@ -214,14 +215,11 @@ async function handleValidate(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleDeactivate(request: Request, env: Env): Promise<Response> {
-  const body = await readJson<ValidateRequest>(request);
-  if (!body) {
-    return json({ status: "invalid", message: "Invalid JSON payload." }, 400);
-  }
+  const body = (await readJson<Record<string, unknown>>(request)) ?? {};
 
-  const email = normalizeEmail(body.email);
-  const licenseKey = normalizeLicenseKey(body.licenseKey);
-  const deviceID = body.deviceID.trim();
+  const email = normalizeEmail(readString(body, ["email"]) ?? "");
+  const licenseKey = normalizeLicenseKey(readString(body, ["licenseKey", "license_key"]) ?? "");
+  const deviceID = readString(body, ["deviceID", "device_id"]) ?? "";
 
   const license = await findLicense(env.DB, email, licenseKey);
   if (!license) {
@@ -597,6 +595,9 @@ export function classifyPaddleWebhookEvent(eventType: string): "create" | "revok
 
 function resolvePlan(env: Env, priceID: string): { planCode: PlanCode; maxSeats: number } | null {
   if (priceID === env.PADDLE_SINGLE_PRICE_ID) {
+    return { planCode: "single", maxSeats: 1 };
+  }
+  if (env.PADDLE_SINGLE_TEST_PRICE_ID && priceID === env.PADDLE_SINGLE_TEST_PRICE_ID) {
     return { planCode: "single", maxSeats: 1 };
   }
   if (priceID === env.PADDLE_DOUBLE_PRICE_ID) {
