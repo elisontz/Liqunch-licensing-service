@@ -255,6 +255,9 @@ async function handlePaddleWebhook(request: Request, env: Env): Promise<Response
     secret: env.PADDLE_WEBHOOK_SECRET
   });
   if (!signatureValid.valid) {
+    console.warn("paddle webhook rejected", JSON.stringify({
+      reason: signatureValid.message
+    }));
     return json({ status: "invalid", message: signatureValid.message }, 401);
   }
 
@@ -265,6 +268,7 @@ async function handlePaddleWebhook(request: Request, env: Env): Promise<Response
 
   const eventId = readString(payload, ["event_id", "eventId", "id"]) ?? crypto.randomUUID();
   const eventType = readString(payload, ["event_type", "eventType", "type"]) ?? "unknown";
+  console.log("paddle webhook accepted", JSON.stringify({ eventId, eventType }));
 
   const alreadyProcessed = await env.DB
     .prepare("SELECT id FROM webhook_events WHERE id = ?")
@@ -303,6 +307,12 @@ async function createLicenseFromWebhook(env: Env, payload: Record<string, unknow
   ]);
 
   if (!email || !transactionID || !priceID) {
+    console.warn("license creation skipped", JSON.stringify({
+      reason: "missing webhook purchase fields",
+      emailPresent: Boolean(email),
+      transactionIDPresent: Boolean(transactionID),
+      priceIDPresent: Boolean(priceID)
+    }));
     return;
   }
 
@@ -311,11 +321,19 @@ async function createLicenseFromWebhook(env: Env, payload: Record<string, unknow
     .bind(transactionID)
     .first<{ id: string }>();
   if (existing) {
+    console.log("license creation skipped", JSON.stringify({
+      reason: "transaction already processed",
+      transactionID
+    }));
     return;
   }
 
   const plan = resolvePlan(env, priceID);
   if (!plan) {
+    console.warn("license creation skipped", JSON.stringify({
+      reason: "unmapped price id",
+      priceID
+    }));
     return;
   }
 
