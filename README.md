@@ -23,7 +23,7 @@ This repository contains the standalone licensing backend only. It is responsibl
 Related repositories:
 
 - App: [`Liqunch`](https://github.com/elisontz/Liqunch)
-- Website: [`liqunch-web`](https://github.com/elisontz/liqunch-web)
+- Website: `liqunch-web-new-design`
 
 ## Endpoints
 
